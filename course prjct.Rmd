@@ -1,0 +1,137 @@
+---
+title: "Prediction Assignment Writeup - Practical Machine Learning Final Project"
+author: "Sharon L"
+date: "April 6, 2017"
+output: html_document
+---
+
+## Synopsis
+One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. The goal of this project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. It will describing how to build a model, explaining used cross validation, what the expected out of sample error is, and result.
+
+## Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+##  Data 
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. 
+
+The training data:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+Prepare the dataset, exclude missing values
+```{r readfile}
+setwd("U:/Sharon.Liu/profile/Documents/R/course 8")
+
+if (!require("caret")) {
+  install.packages("caret", repos="http://cran.rstudio.com/") 
+  library("caret")
+}
+if (!require("rpart")) {
+  install.packages("rpart", repos="http://cran.rstudio.com/")
+  library(rpart)
+}
+if (!require("rpart.plot")) {
+  install.packages("rpart.plot", repos="http://cran.rstudio.com/")
+  library(rpart.plot)
+}
+if (!require("rattle")) {
+  install.packages("rattle", repos="http://cran.rstudio.com/")
+  library(rattle)
+}
+if (!require("randomForest")) {
+  install.packages("randomForest", repos="http://cran.rstudio.com/")
+  library(randomForest)
+}
+if (!require("corrplot")) {
+  install.packages("corrplot", repos="http://cran.rstudio.com/")
+  library("corrplot")
+}
+if (!require("dplyr")) {
+  install.packages("dplyr", repos="http://cran.rstudio.com/")
+  library(dplyr)
+}
+if (!require("gridExtra")) {
+  install.packages("gridExtra", repos="http://cran.rstudio.com/")
+  library(gridExtra)
+}
+
+pmlTrain<-read.csv("pml-training.csv", header=T, na.strings=c("NA", "#DIV/0!"))
+pmlTest<-read.csv("pml-testing.csv", header=T, na.string=c("NA", "#DIV/0!"))
+
+```
+## Understanding Data: Correlation Analysis
+
+A correlation among variables is analysized before porceeding to the modeling procedures
+
+```{r cor}
+corMatrix <- cor(pmlTrain[,c("roll_belt","roll_arm", "roll_dumbbell", "roll_forearm",
+                         "pitch_belt", "pitch_arm", "pitch_dumbbell", "pitch_forearm",
+                         "yaw_belt", "yaw_belt", "yaw_dumbbell", "yaw_forearm")])
+corrplot(corMatrix, order = "FPC", method = "color", type = "lower", 
+         tl.cex = 0.8, tl.col = rgb(0, 0, 0))
+```
+The highly correlated variables are shown in dark colors in the graph above. 
+
+## Building the model
+
+We learned the random forest approach in the class, by using k-fold cross-validation to reduce uncertainty on future predictions. 
+
+```{r model}
+
+inTrain <- createDataPartition(pmlTrain$classe, p = 0.7, list = FALSE)
+training <- pmlTrain[inTrain,]
+validation <- pmlTrain[-inTrain,]
+
+#Using all variables
+fitControl <- trainControl(method = "repeatedcv", 
+                           number = 20,
+                           repeats = 20)
+
+rfmod2 <- train(classe ~ ., data = training[,c("classe", "roll_belt","roll_arm", "roll_dumbbell", "roll_forearm",
+                                              "pitch_belt", "pitch_arm", "pitch_dumbbell", "pitch_forearm",
+                                              "yaw_belt", "yaw_arm", "yaw_dumbbell", "yaw_forearm")],
+                method = "rf", ntree = 20, trControl = fitControl)
+rfmod2
+
+plot(varImp(rfmod2))
+confusionMatrix(rfmod2, newdata = predict(rfmod2, newdata = validation))
+
+predrf<-predict(rfmod2, newdata=validation)
+confusionMatrix(predrf, validation$classe)
+```
+Random forest trees were generated for the training dataset using cross-validation. Then the generated algorithm was examnined under the partitioned training set to examine the accuracy and estimated error of prediction. By using Cross-Validated (20 fold, repeated 20 times) an accuracy of 98.4% with a 95% CI [0.981-0.987] was achieved accompanied by a Kappa value of 0.98.
+
+## Expected out of sample error rate
+
+```{r samerr}
+n <- 1000
+results <- rep(NA, n)
+for (i in 1:n){
+  results[i] <- sum(predict(rfmod2, newdata = validation) == validation$classe)/nrow(validation)
+}
+qplot(results, col = I("gray"))
+
+# The average asserted rate
+mean(results)
+
+# The mean error rate
+1 - mean(results)
+
+```
+
+## Applying the selected Model to the Testing data
+
+```{r test}
+
+solutions <- rep(NA, 20)
+for(i in 1:20){
+  testIdSet <- filter(pmlTest, problem_id == i)
+  solutions[i] <- as.vector(predict(rfmod2, newdata = testIdSet))
+}
+solutions
+
+```
+
